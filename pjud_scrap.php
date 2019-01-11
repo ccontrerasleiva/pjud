@@ -21,12 +21,6 @@ class Scrap
 
     }
 
-    function insertaBeco($beco, $solicitud)
-    {
-        $connect = new Conexion();
-        $connect->insertaBeco($beco, $solicitud);
-    }
-
     /**
      * @param $resultados
      * @param $rut
@@ -289,206 +283,7 @@ class Scrap
         }
     }
 
-    function exportBEco($solicitud)
-    {
-        $connect = new Conexion();
-        $exportBeco = $connect->exportBeco($solicitud);
-
-        return $exportBeco;
-    }
-
-    function buscaCausas($log, $tabla)
-    {
-        $client2 = new Client('http://civil.poderjudicial.cl', array(
-            'maxredirects' => 100,
-            'timeout' => 600,
-            'keepalive' => true
-        ));
-
-        $headers = $client2->getRequest()->getHeaders();
-        $cookies = new Zend\Http\Cookies($headers);
-
-        $client2->setMethod('GET');
-        $response = $client2->send();
-
-        $client2->setUri('http://civil.poderjudicial.cl/CIVILPORWEB/AtPublicoViewAccion.do?tipoMenuATP=1');
-
-        $cookies->addCookiesFromResponse($response, $client2->getUri());
-        $response = $client2->send();
-        if ($response->isSuccess()) {
-
-
-            $post2 = $this->setPostBPR($log, $tabla);
-
-
-            //$contador = 0;
-            echo '<pre>POSTS: ' . count($post2) . '</pre>';
-            foreach ($post2 as $busqueda2) {
-
-                $rut_dmo = $busqueda2[0];
-                $rol = explode('-', $busqueda2[1]);
-                $tip_causa = $rol[0];
-                $rol_causa = $rol[1];
-                $era_causa = $rol[2];
-                $cod_tribunal = $busqueda2[2];
-
-                $client2->setUri('http://civil.poderjudicial.cl/CIVILPORWEB/AtPublicoDAction.do');
-                $cookies->addCookiesFromResponse($response, $client2->getUri());
-
-                $client2->setParameterPost(array(
-                    'TIP_Consulta' => '1',
-                    'TIP_Lengueta' => 'tdUno',
-                    'SeleccionL' => '0',
-                    'TIP_Causa' => $tip_causa,
-                    'ROL_Causa' => $rol_causa,
-                    'ERA_Causa' => $era_causa,
-                    'RUC_Era' => '',
-                    'RUC_Tribunal' => '3',
-                    'RUC_Numero' => '',
-                    'RUC_Dv' => '',
-                    'FEC_Desde' => '19/10/2015',
-                    'FEC_Hasta' => '19/10/2015',
-                    'SEL_Litigantes' => '0',
-                    'RUT_Consulta' => '',
-                    'RUT_DvConsulta' => '',
-                    'NOM_Consulta' => '',
-                    'APE_Paterno' => '',
-                    'APE_Materno' => '',
-                    'COD_Tribunal' => $cod_tribunal,
-                    'irAccionAtPublico' => 'Consulta'
-                ));
-
-                $response = $client2->setMethod('POST')->send();
-
-                $data = $response->getContent();
-
-                $dom = new Query($data);
-
-                $results = $dom->execute('#contentCellsAddTabla tr');
-                $informacionCausas = $this->getCausas($results);
-                $postCausas = $this->setPostCausas($informacionCausas);
-
-                $client2->setUri("http://civil.poderjudicial.cl/CIVILPORWEB/ConsultaDetalleAtPublicoAccion.do?");
-
-                $cookies->addCookiesFromResponse($response, $client2->getUri());
-
-                foreach ($postCausas as $post) {
-
-                    $client2->setParameterPost(array(
-                        "TIP_Consulta" => $post['TIP_Consulta'],
-                        "TIP_Cuaderno" => $post['TIP_Cuaderno'],
-                        "CRR_IdCuaderno" => $post['CRR_IdCuaderno'],
-                        "ROL_Causa" => $post['ROL_Causa'],
-                        "TIP_Causa" => $post['TIP_Causa'],
-                        "ERA_Causa" => $post['ERA_Causa'],
-                        "COD_Tribunal" => $post['COD_Tribunal'],
-                        "TIP_Informe" => $post['TIP_Informe'] . "&"
-                    ));
-
-                    $response = $client2->setMethod('POST')->send();
-
-                    $data = $response->getContent();
-
-                    $dom = new Query($data);
-                    $cuadernos = $dom->execute("#TablaCuadernos .comboBox option");
-                    $contador = 0;
-                    foreach ($cuadernos as $cuaderno) {
-                        $arr_cuadernos[$contador]['nombre'] = $cuaderno->textContent;
-                        $arr_cuadernos[$contador]['id'] = $cuaderno->attributes->getNamedItem('value')->textContent;
-                        $contador++;
-                    }
-                    $detalleCausa = $dom->execute('tr');
-                    $rol = $post['TIP_Causa'] . '-' . $post['ROL_Causa'] . '-' . $post['ERA_Causa'];
-                    $arr_detalles = $this->infoCausas($detalleCausa, $busqueda2[1], $rut_dmo);
-
-                    $cuaderno = $arr_cuadernos[0]['nombre'];
-
-                    $litigantes = $dom->execute("#Litigantes table tr");
-                    $arr_litigantes = $this->getLitigantes($litigantes, $busqueda2[1], $rut_dmo, $cuaderno);
-
-
-                    $tribunal = $arr_detalles['tribunal'];
-
-                    $historias = $dom->execute("#Historia tr");
-                    $arr_historias = $this->getHistorias($historias, $rol, $rut_dmo, $tribunal, $cuaderno);
-                    if (count($cuadernos) > 1) {
-                        $documento = $dom->getDocument();
-
-                        preg_match_all("/(TIP_Cuaderno.value.*')/", $documento, $coincidencias);
-                        $arr_tips_cuadernos = $coincidencias[0];
-                        preg_match_all("/(CRR_IdCuaderno.value.*)/", $documento, $crr_id);
-                        $arr_crr_cuadernos = $crr_id[0];
-
-
-                        $contador = 0;
-                        for ($i = 1; $i < count($cuadernos); $i++) {
-                            $postCuaderno[$contador]['tip'] = str_replace("TIP_Cuaderno.value   = '", "", $arr_tips_cuadernos[$i]);
-                            $postCuaderno[$contador]['tip'] = str_replace("'", "", $postCuaderno[$contador]['tip']);
-                            $postCuaderno[$contador]['crr'] = str_replace("CRR_IdCuaderno.value = '", "", $arr_crr_cuadernos[$i]);
-                            $postCuaderno[$contador]['crr'] = str_replace("';", "", $postCuaderno[$contador]['crr']);
-                            $postCuaderno[$contador]['crr'] = trim(rtrim($postCuaderno[$contador]['crr'], " "));
-                            $postCuaderno[$contador]['gls'] = $arr_cuadernos[$i]['nombre'];
-                            $postCuaderno[$contador]['tip_causa'] = $post['TIP_Causa'];
-                            $postCuaderno[$contador]['rol_causa'] = $post['ROL_Causa'];
-                            $postCuaderno[$contador]['era_causa'] = $post['ERA_Causa'];
-                            $postCuaderno[$contador]['cod_tribunal'] = $post['COD_Tribunal'];
-
-                            $contador++;
-                        }
-
-
-                        foreach ($postCuaderno as $cuaderno) {
-                            echo '<pre>';
-                            print_r($cuaderno);
-                            echo '</pre>';
-
-                            $post_parameters = array(
-                                'TIP_Causa' => $cuaderno['tip_causa'],
-                                'ROL_Causa' => $cuaderno['rol_causa'],
-                                'ERA_Causa' => $cuaderno['era_causa'],
-                                'COD_Tribunal' => $cuaderno['cod_tribunal'],
-                                'TIP_Cuaderno' => $cuaderno['tip'],
-                                'GLS_Cuaderno' => $cuaderno['gls'],
-                                'CRR_IdCuaderno' => $cuaderno['crr'],
-                                'TIP_Informe' => '1',
-                                'FLG_Caratula' => '0',
-                                'TIP_Cargo' => '2',
-                                'COD_Corte' => '98',
-                                'FLG_ImpresionTribunal' => '1',
-                                'CRR_Cuaderno' => $cuaderno['crr'],
-                                'irAccionAtPublico' => 'Ir a Cuaderno',
-                                'FLG_Vuelta' => 'null'
-                            );
-
-                            $client2->setUri("http://civil.poderjudicial.cl/CIVILPORWEB/AtPublicoDAction.do");
-                            $cookies->addCookiesFromResponse($response, $client2->getUri());
-
-                            $client2->setParameterPost($post_parameters);
-
-                            $response = $client2->setMethod('POST')->send();
-
-                            $data = $response->getContent();
-                            $dom = new Query($data);
-
-                            $cuaderno = $cuaderno['gls'];
-                            $tribunal = $arr_detalles['tribunal'];
-
-                            $historias = $dom->execute("#Historia tr");
-                            $arr_historias = $this->getHistorias($historias, $rol, $rut_dmo, $tribunal, $cuaderno);
-                        }
-                    }
-
-
-                }
-            }
-        } //$contador++;
-        else {
-            echo 'ha ocurrido un problema, por favor dirigase a la pestaña de log y restaure la busuqeda desde el punto en que se detuvo el proceso';
-        }
-
-    }
-
-
+    
     function getCausas($results)
     {
         $informacionCausa = array();
@@ -621,7 +416,7 @@ class Scrap
         return $arr_infoCausa;
     }
 
-    /*function getIdCuadernoos($cuadernos)
+    function getIdCuadernoos($cuadernos)
     {
         $idCuadernos = "";
 
@@ -638,12 +433,12 @@ class Scrap
         }
 
         return $idCuadernos;
-    }*/
+    }
 
     /**
      * @param $cuadernos
      */
-    /*function getNombreCuadernos($cuadernos)
+    function getNombreCuadernos($cuadernos)
     {
 
         $nombreCuaderno = "";
@@ -655,7 +450,7 @@ class Scrap
         }
 
         return $nombreCuaderno;
-    }*/
+    }
 
     function setPostCuadernos($posts)
     {
